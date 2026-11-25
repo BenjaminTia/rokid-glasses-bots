@@ -24,7 +24,6 @@ import { speakThen } from '../../lib/speak.js';
 import { listen } from '../../lib/listen.js';
 import { conversations, turnsOf, addTurn, ago } from '../../lib/history.js';
 import { VERSION } from '../../lib/version.js';
-import { decodeWebP } from '../../lib/webp.js';
 import { loadSettings, saveSettings, isConfigured, settingsFromQr, newConversation } from '../../lib/settings.js';
 
 // Opening the agent starts listening straight away, and it listens again after
@@ -49,6 +48,21 @@ const HINT = {
 const LINE_UNITS = 21; // full-width characters per row; ASCII counts 0.55
 const PAGE_ROWS = 7;
 const SWIPE_DEBOUNCE_MS = 250; // one swipe sends two arrow keys
+const QR_TIMEOUT_MS = 15000;
+
+async function withQrTimeout(promise, message) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), QR_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function hardWrap(text) {
   const out = [];
@@ -145,6 +159,8 @@ export default {
     this.recognition = null;
     this.controller = null;
     this.cameraCtx = null;
+    this.scanAttempt = 0;
+    this.scanBusy = false;
     this.stopSpeech = null;
     this.settings = loadSettings();
     if (!isConfigured(this.settings)) {
@@ -181,12 +197,17 @@ export default {
   },
 
   onHide() {
+    this.scanAttempt += 1;
+    this.scanBusy = false;
+    if (this.data.state === 'decoding') this.setState('scan');
     this.stopListening(true);
     this.endSpeech();
     this.cameraCtx = null;
   },
 
   onUnload() {
+    this.scanAttempt += 1;
+    this.scanBusy = false;
     this.stopListening(true);
     this.endSpeech();
     this.cancelRequest();
@@ -607,25 +628,37 @@ export default {
   // ---------------------------------------------------------------- setup QR
 
   openScanner(message) {
+    this.scanAttempt += 1;
+    this.scanBusy = false;
     this.stopListening(true);
     this.cameraCtx = wx.media.createCameraContext();
     this.setState('scan', { error: message, answer: '', question: '', tool: '' });
   },
 
   async scanQr() {
-    this.setState('decoding', { error: '' });
+    if (this.scanBusy) return;
+    this.scanBusy = true;
+    const attempt = ++this.scanAttempt;
+    this.setState('decoding', { hint: 'Capturing QR code…', error: '' });
     try {
       if (!this.cameraCtx) this.cameraCtx = wx.media.createCameraContext();
-      const photo = await this.cameraCtx.takePhoto({ quality: 'high' });
-      if (!String(photo?.mimeType || '').toLowerCase().includes('webp')) {
-        throw new Error(`Unsupported photo format: ${photo?.mimeType || 'unknown'}`);
-      }
-      const image = await decodeWebP(photo.data, { output: 'gray' });
-      const codes = await new BarcodeDetector().detect({
-        data: image.gray,
-        width: image.width,
-        height: image.height,
-      });
+      if (!this.cameraCtx) throw new Error('Camera is unavailable');
+      const photo = await withQrTimeout(
+        this.cameraCtx.takePhoto({ quality: 'high', mode: 'wide', enableSystemPreview: true }),
+        'Camera timed out. Tap to try again',
+      );
+      if (attempt !== this.scanAttempt) return;
+      const mimeType = String(photo?.mimeType || '');
+      if (!photo?.data || !mimeType) throw new Error('Camera returned an invalid image');
+      this.setData({ hint: 'Reading QR code…', error: '' });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (attempt !== this.scanAttempt) return;
+      const image = new Blob([photo.data], { type: mimeType });
+      const codes = await withQrTimeout(
+        new BarcodeDetector({ formats: ['qr_code'] }).detect(image),
+        'QR reader timed out. Tap to try again',
+      );
+      if (attempt !== this.scanAttempt) return;
       if (!codes || codes.length === 0) {
         this.setState('scan', { error: 'No QR code found. Move closer and tap again' });
         return;
@@ -643,7 +676,10 @@ export default {
       this.setState('idle', { error: '', answer: 'Connected. Ask me anything.' });
       this.startListening();
     } catch (e) {
+      if (attempt !== this.scanAttempt) return;
       this.setState('scan', { error: e.message || 'Could not read the QR code' });
+    } finally {
+      if (attempt === this.scanAttempt) this.scanBusy = false;
     }
   },
 };
