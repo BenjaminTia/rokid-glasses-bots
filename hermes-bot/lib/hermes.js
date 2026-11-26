@@ -3,7 +3,7 @@
 
 // Splits an SSE byte stream into { event, data } frames. Lines starting with
 // ':' are Hermes keepalives and are skipped.
-function createSseParser(onFrame) {
+export function createSseParser(onFrame) {
   let buffer = '';
   let event = '';
   let data = [];
@@ -69,6 +69,15 @@ export async function askHermes(config, input, handlers = {}, signal) {
     throw new Error(`Hermes ${response.status}: ${body.slice(0, 160)}`);
   }
 
+  // Prototype hook: hands the caller the response headers (the runs client
+  // needs X-Hermes-Session-Id to keep a conversation on one server-side
+  // session). Observer only: no-op when unused and cannot throw into the reply.
+  if (handlers.onResponse) {
+    try {
+      handlers.onResponse(response);
+    } catch (e) {}
+  }
+
   // Text per output item; the answer is the last non-commentary message.
   const texts = {};
   const commentary = {};
@@ -76,7 +85,15 @@ export async function askHermes(config, input, handlers = {}, signal) {
   let finalText = '';
   let failure = null;
 
-  const parse = createSseParser(({ data }) => {
+  const parse = createSseParser(({ event, data }) => {
+    // Prototype hook for the status view (lib/status.js). Optional and
+    // isolated: no-op when unused, and an observer that throws is ignored so
+    // it can never break the reply. The event name is passed through too.
+    if (handlers.onEvent) {
+      try {
+        handlers.onEvent({ event, data });
+      } catch (e) {}
+    }
     let msg;
     try {
       msg = JSON.parse(data);

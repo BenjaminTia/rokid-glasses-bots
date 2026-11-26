@@ -13,15 +13,19 @@ glasses, the key and Tailscale.
 |---|---|
 | "Hi Rokid, open Hermes Bot" | Opens on your last exchange and starts listening. |
 | Speak | Sends it once you've been quiet for about 3 seconds (short pauses are fine). |
-| Tap the temple | Talk now · send now (while listening) · cancel (while thinking) · interrupt a spoken reply and talk. |
-| Swipe | Next / previous page of a long reply; before page 1, earlier exchanges. While it's listening, a swipe stops listening (nothing is sent) so you can read. |
+| Tap the temple | Talk, send what was heard, or interrupt a spoken reply. While thinking, tap to record a follow-up for the queue. |
+| Swipe | Open the menu while listening or speaking. Browse reply pages while idle; swipe past the last page for the menu. While thinking, swipe to cancel. |
 | Swipe past the last page | Opens the **menu**. |
 | Double tap (Back) | Steps out of a submenu, or closes the app. |
 
 **Menu:** Talk · Earlier replies › (this conversation, newest first) · New
 conversation · Past conversations › · Quick asks › (weather, headlines) ·
 More › (repeat last reply, ask again, Fast/Smart mode, Settings › (speak
-replies, keep listening, scan setup QR), close).
+replies, keep listening, scan setup QR), close). After a turn, More also has a
+Status panel. It shows the served model when provided by `/v1/runs`, requested
+reasoning mode and usage when available. `turn tok/s` is output tokens divided
+by the entire turn time, including waiting and tool calls; it is not raw model
+generation speed. Context capacity is unavailable when the API does not report it.
 
 **Voice commands** (say them instead of a question):
 
@@ -75,8 +79,9 @@ Mac, so resuming a past conversation continues it with its context.
 ### Optional: fast and smart models
 
 The app asks for the model `glasses` (fast mode) or `glasses-smart` (smart
-mode). If your Hermes config has no routes with those names, both use your
-agent's normal model. To pick models for the glasses, add routes to
+mode). Configure these aliases for your API server. Without a matching route,
+Hermes may pass the alias to the provider, which can fail or trigger a fallback;
+it does not necessarily select the normal model. To pick models for the glasses, add routes to
 `~/.hermes/config.yaml` and restart Hermes:
 
 ```yaml
