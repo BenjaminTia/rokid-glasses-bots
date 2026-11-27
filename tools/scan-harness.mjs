@@ -14,7 +14,7 @@ let text = fs.readFileSync(file, 'utf8');
 const m = text.match(/<script setup>([\s\S]*?)<\/script>/);
 if (!m) throw new Error('no <script setup> block');
 let js = m[1]
-  .replace(/^import .*$/gm, '')
+  .replace(/^import[\s\S]*?;[ \t]*$/gm, '')
   .replace('export default {', 'const component = {');
 
 // Shorten the 15 s timeout so the timeout tests are fast.
